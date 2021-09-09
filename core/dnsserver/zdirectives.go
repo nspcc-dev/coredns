@@ -44,6 +44,7 @@ var Directives = []string{
 	"transfer",
 	"hosts",
 	"route53",
+	"nns",
 	"azure",
 	"clouddns",
 	"k8s_external",
