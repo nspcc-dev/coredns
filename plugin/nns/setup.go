@@ -3,6 +3,7 @@ package nns
 import (
 	"context"
 	"fmt"
+
 	"github.com/coredns/caddy"
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"

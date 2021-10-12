@@ -2,12 +2,13 @@ package nns
 
 import (
 	"context"
+	"testing"
+
 	"github.com/coredns/coredns/plugin/pkg/dnstest"
 	"github.com/coredns/coredns/plugin/test"
 	"github.com/miekg/dns"
 	"github.com/nspcc-dev/neo-go/pkg/rpc/client"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestGetNetmapHash(t *testing.T) {

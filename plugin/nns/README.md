@@ -26,3 +26,14 @@ requests to 8.8.8.8 if the neo request fails.
   forward . 8.8.8.8
 }
 ```
+
+This plugin also supports zone transfer:
+
+``` corefile
+neofs {
+  nns http://morph_chain.neofs.devenv:30333
+  transfer {
+      to *
+  }
+}
+```
