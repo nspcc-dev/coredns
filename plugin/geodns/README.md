@@ -7,12 +7,13 @@
 ## Description
 
 The geodns plugin filter response dns records (types: `A, AAAA`) and transfer only closest to the client. 
+Plugin supports `city` and `country` type db. If directory contains more than one db each type, the last one is used.
 You can specify max allowed records to response (default is 1).
 
 ## Syntax
 
 ``` txt
-geodns GEOIP_DATABASE [MAX_RECORDS]
+geodns GEOIP_DATABASES_DIR_PATH [MAX_RECORDS]
 ```
 
 ## Examples
@@ -21,7 +22,7 @@ In this configuration, we will filter `A` and `AAAA` records that nns plugin fou
 
 ``` corefile
 . {
-   geodns testdata/GeoIP2-City-Test.mmdb 2
+   geodns testdata/
    nns http://localhost:30333
 }
 ```

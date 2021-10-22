@@ -16,8 +16,8 @@ func TestSetup(t *testing.T) {
 		{args: "path1 path2", valid: false},
 		{args: "path1 arg2 arg3", valid: false},
 		{args: "testdata/GeoIP2-City-Test.mmdb -1", valid: false},
-		{args: "testdata/GeoIP2-City-Test.mmdb", valid: true},
-		{args: "testdata/GeoIP2-City-Test.mmdb 3", valid: true},
+		{args: "testdata/", valid: true},
+		{args: "testdata 3", valid: true},
 	} {
 		c := caddy.NewTestController("dns", "geodns "+tc.args)
 		err := setup(c)
