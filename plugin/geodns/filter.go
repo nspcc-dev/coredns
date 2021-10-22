@@ -17,8 +17,8 @@ const maxDistance float64 = 360
 var emptyLocation geoip2.City
 
 type serverInfo struct {
-	index    int
-	distance float64
+	index        int
+	distanceInfo *DistanceInfo
 }
 
 type recordInfo struct {
@@ -56,9 +56,9 @@ func (r *ResponseFilter) WriteMsg(res *dns.Msg) error {
 		return r.ResponseWriter.WriteMsg(res)
 	}
 
-	clientLocation, err := r.filter.db.City(r.client)
-	if err != nil || clientLocation.Location == emptyLocation.Location {
-		log.Warningf(formErrMessage(r.client, err))
+	clientInf := r.filter.db.IPInfo(r.client)
+	if clientInf.IsEmpty() {
+		log.Warningf(formErrMessage(r.client))
 		if r.filter.maxRecords < len(res.Answer) {
 			res.Answer = res.Answer[:r.filter.maxRecords]
 		}
@@ -69,15 +69,15 @@ func (r *ResponseFilter) WriteMsg(res *dns.Msg) error {
 	distances := make([]serverInfo, len(healthy))
 
 	for i, rec := range healthy {
-		serverLocation, err := r.filter.db.City(net.ParseIP(rec.endpoint))
-		if err != nil || serverLocation.Location == emptyLocation.Location {
-			log.Debugf(formErrMessage(rec, err))
-			distances[i] = serverInfo{index: i, distance: maxDistance}
+		serverInf := r.filter.db.IPInfo(net.ParseIP(rec.endpoint))
+		if serverInf.IsEmpty() {
+			log.Debugf(formErrMessage(rec))
+			distances[i] = serverInfo{index: i, distanceInfo: &DistanceInfo{Distance: maxDistance}}
 			continue
 		}
 
-		dist := distance(clientLocation, serverLocation)
-		distances[i] = serverInfo{index: i, distance: dist}
+		dist := distance(clientInf, serverInf)
+		distances[i] = serverInfo{index: i, distanceInfo: dist}
 	}
 
 	res.Answer = chooseClosest(healthy, distances, r.filter.maxRecords)
@@ -111,14 +111,39 @@ func isSupportedType(qtype uint16) bool {
 	return qtype == dns.TypeA || qtype == dns.TypeAAAA
 }
 
-func distance(from, to *geoip2.City) float64 {
+func distance(from, to *IPInformation) *DistanceInfo {
+	res := &DistanceInfo{Distance: maxDistance}
 	if from == nil || to == nil {
-		return maxDistance
+		return res
 	}
-	ll1 := s2.LatLngFromDegrees(from.Location.Latitude, from.Location.Longitude)
-	ll2 := s2.LatLngFromDegrees(to.Location.Latitude, to.Location.Longitude)
-	angle := ll1.Distance(ll2)
-	return math.Abs(angle.Degrees())
+
+	var fromCountry, toCountry uint
+	fromLocation, toLocation := emptyLocation.Location, emptyLocation.Location
+	if from.City != nil {
+		fromCountry = from.City.Country.GeoNameID
+		fromLocation = from.City.Location
+	}
+	if to.City != nil {
+		toCountry = to.City.Country.GeoNameID
+		toLocation = to.City.Location
+	}
+
+	if fromLocation != emptyLocation.Location && toLocation != emptyLocation.Location {
+		ll1 := s2.LatLngFromDegrees(fromLocation.Latitude, fromLocation.Longitude)
+		ll2 := s2.LatLngFromDegrees(toLocation.Latitude, toLocation.Longitude)
+		angle := ll1.Distance(ll2)
+		res.Distance = math.Abs(angle.Degrees())
+	}
+
+	if fromCountry == 0 && from.Country != nil {
+		fromCountry = from.Country.Country.GeoNameID
+	}
+	if toCountry == 0 && to.Country != nil {
+		toCountry = to.Country.Country.GeoNameID
+	}
+	res.CountryMatched = fromCountry == toCountry
+
+	return res
 }
 
 func chooseClosest(records []*recordInfo, distance []serverInfo, max int) []dns.RR {
@@ -127,7 +152,14 @@ func chooseClosest(records []*recordInfo, distance []serverInfo, max int) []dns.
 	}
 
 	sort.Slice(distance, func(i, j int) bool {
-		return distance[i].distance < distance[j].distance
+		di1 := distance[i].distanceInfo
+		di2 := distance[j].distanceInfo
+
+		if di1.Distance == maxDistance && di2.Distance == maxDistance {
+			return di1.CountryMatched
+		}
+
+		return di1.Distance < di2.Distance
 	})
 
 	results := make([]dns.RR, max)
@@ -138,9 +170,6 @@ func chooseClosest(records []*recordInfo, distance []serverInfo, max int) []dns.
 	return results
 }
 
-func formErrMessage(data fmt.Stringer, err error) string {
-	if err != nil {
-		return fmt.Sprintf("couldn't get location %s from db: %s", data, err)
-	}
+func formErrMessage(data fmt.Stringer) string {
 	return fmt.Sprintf("couldn't get location %s from db: not found", data)
 }

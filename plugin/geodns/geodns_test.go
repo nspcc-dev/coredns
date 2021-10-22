@@ -12,6 +12,7 @@ import (
 	"github.com/coredns/coredns/plugin/test"
 	"github.com/coredns/coredns/request"
 	"github.com/miekg/dns"
+	"github.com/oschwald/geoip2-golang"
 	"github.com/stretchr/testify/require"
 )
 
@@ -73,7 +74,7 @@ func TestFiltering(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			geoDNS, err := newGeoDNS("testdata/GeoIP2-City-Test.mmdb", tc.maxRec)
+			geoDNS, err := newGeoDNS("testdata", tc.maxRec)
 			require.NoError(t, err)
 			geoDNS.Next = newTestHandler(map[string][]string{
 				"test.neofs": tc.records,
@@ -113,7 +114,7 @@ func TestFilteringEDNS0(t *testing.T) {
 	ThunderBluff := "4444:4::"
 	maxRec := 1
 
-	geoDNS, err := newGeoDNS("testdata/GeoIP2-City-Test.mmdb", maxRec)
+	geoDNS, err := newGeoDNS("testdata/", maxRec)
 	require.NoError(t, err)
 	geoDNS.Next = newTestHandler(map[string][]string{
 		"test.neofs": {Orgrimar, WarsongHold, Stormwind},
@@ -202,4 +203,52 @@ func getTestAnswers(req request.Request, res []string) []dns.RR {
 	}
 
 	return records
+}
+
+func TestDistance(t *testing.T) {
+	var cityWithCountry geoip2.City
+	cityWithCountry.Country.GeoNameID = 1
+	cityWithCountry.Location.Longitude = 1
+	cityWithCountry.Location.Latitude = 1
+
+	var country geoip2.Country
+	country.Country.GeoNameID = 1
+
+	for _, tc := range []struct {
+		name     string
+		from     *IPInformation
+		to       *IPInformation
+		expected *DistanceInfo
+	}{
+		{
+			name:     "empty",
+			expected: &DistanceInfo{Distance: maxDistance},
+		},
+		{
+			name: "match city country",
+			from: &IPInformation{
+				City: &cityWithCountry,
+			},
+			to: &IPInformation{
+				Country: &country,
+			},
+			expected: &DistanceInfo{Distance: maxDistance, CountryMatched: true},
+		},
+		{
+			name: "the same location",
+			from: &IPInformation{
+				City: &cityWithCountry,
+			},
+			to: &IPInformation{
+				City: &cityWithCountry,
+			},
+			expected: &DistanceInfo{Distance: 0, CountryMatched: true},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res := distance(tc.from, tc.to)
+			require.Equal(t, tc.expected, res)
+		})
+	}
+
 }
