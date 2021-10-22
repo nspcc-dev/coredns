@@ -97,20 +97,24 @@ func (db *db) IPInfo(ip net.IP) *IPInformation {
 	return result
 }
 
+// we have to check type because geoip2 lib allows city request to country db for backward compatibility.
 func getDBType(r *geoip2.Reader) (int, error) {
-	if _, err := r.City(probingIP); err != nil {
-		if _, ok := err.(geoip2.InvalidMethodError); !ok {
-			return 0, fmt.Errorf("couldn't look up database %s: %w", r.Metadata().DatabaseType, err)
-		}
-	} else {
+	switch r.Metadata().DatabaseType {
+	case "DBIP-City-Lite",
+		"DBIP-Location (compat=City)",
+		"GeoLite2-City",
+		"GeoIP2-City",
+		"GeoIP2-City-Africa",
+		"GeoIP2-City-Asia-Pacific",
+		"GeoIP2-City-Europe",
+		"GeoIP2-City-North-America",
+		"GeoIP2-City-South-America",
+		"GeoIP2-Precision-City":
 		return isCity, nil
-	}
-
-	if _, err := r.Country(probingIP); err != nil {
-		if _, ok := err.(geoip2.InvalidMethodError); !ok {
-			return 0, fmt.Errorf("couldn't look up database %s: %w", r.Metadata().DatabaseType, err)
-		}
-	} else {
+	case "GeoLite2-Country",
+		"GeoIP2-Country",
+		"DBIP-Country-Lite",
+		"DBIP-Country":
 		return isCountry, nil
 	}
 
