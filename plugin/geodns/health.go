@@ -1,6 +1,7 @@
 package geodns
 
 import (
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -21,8 +22,8 @@ func newHealthChecker() *checker {
 		client: &http.Client{
 			Timeout: 2 * time.Second,
 		},
-		schema: "https://",
-		port:   ":443",
+		schema: "http://",
+		port:   "80",
 	}
 }
 
@@ -54,11 +55,12 @@ func (c *checker) check(endpoints []string) []bool {
 }
 
 func (c *checker) checkOne(endpoint string) bool {
-	response, err := c.client.Get(c.schema + endpoint + c.port)
+	response, err := c.client.Get(c.schema + net.JoinHostPort(endpoint, c.port))
 	if err != nil {
+		log.Debugf(err.Error())
 		return false
 	}
 	_ = response.Body.Close()
 
-	return response.StatusCode == http.StatusOK
+	return response.StatusCode < http.StatusInternalServerError
 }

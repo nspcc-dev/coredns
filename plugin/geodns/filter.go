@@ -56,6 +56,11 @@ func (r *ResponseFilter) WriteMsg(res *dns.Msg) error {
 		return r.ResponseWriter.WriteMsg(res)
 	}
 
+	if len(res.Answer) == 0 {
+		log.Debugf("answer is empty, nothing to do")
+		return r.ResponseWriter.WriteMsg(res)
+	}
+
 	clientInf := r.filter.db.IPInfo(r.client)
 	if clientInf.IsEmpty() {
 		log.Warningf(formErrMessage(r.client))
@@ -66,6 +71,9 @@ func (r *ResponseFilter) WriteMsg(res *dns.Msg) error {
 	}
 
 	healthy := r.filterHealthy(res.Answer)
+	if len(healthy) == 0 {
+		log.Warning("no healthy answer servers")
+	}
 	distances := make([]serverInfo, len(healthy))
 
 	for i, rec := range healthy {
