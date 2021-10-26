@@ -50,6 +50,7 @@ func NewResponseFilter(w dns.ResponseWriter, filter *filter, client net.IP) *Res
 // underlying ResponseWriter's WriteMsg method.
 func (r *ResponseFilter) WriteMsg(res *dns.Msg) error {
 	qtype := res.Question[0].Qtype
+	qName := res.Question[0].Name
 
 	if !isSupportedType(qtype) {
 		log.Debugf("unsupported type %s, nothing to do", dns.Type(qtype))
@@ -70,9 +71,9 @@ func (r *ResponseFilter) WriteMsg(res *dns.Msg) error {
 		return r.ResponseWriter.WriteMsg(res)
 	}
 
-	healthy := r.filterHealthy(res.Answer)
+	healthy := r.filterHealthy(qName, res.Answer)
 	if len(healthy) == 0 {
-		log.Warning("no healthy answer servers")
+		log.Warningf("no answer returned: couldn't resolve %s: no healthy IPs", qName)
 	}
 	distances := make([]serverInfo, len(healthy))
 
@@ -92,7 +93,7 @@ func (r *ResponseFilter) WriteMsg(res *dns.Msg) error {
 	return r.ResponseWriter.WriteMsg(res)
 }
 
-func (r *ResponseFilter) filterHealthy(records []dns.RR) []*recordInfo {
+func (r *ResponseFilter) filterHealthy(qName string, records []dns.RR) []*recordInfo {
 	results := make([]*recordInfo, 0, len(records))
 	endpoints := make([]string, len(records))
 
@@ -104,6 +105,9 @@ func (r *ResponseFilter) filterHealthy(records []dns.RR) []*recordInfo {
 	for i, healthy := range r.filter.health.check(endpoints) {
 		if healthy {
 			results = append(results, &recordInfo{record: records[i], endpoint: endpoints[i]})
+		} else {
+			log.Warningf("tried to resolve the %s, healthcheck %s failed",
+				qName, net.JoinHostPort(endpoints[i], r.filter.health.port))
 		}
 	}
 
