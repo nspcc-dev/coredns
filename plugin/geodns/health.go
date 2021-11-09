@@ -21,6 +21,9 @@ func newHealthChecker() *checker {
 		cache: gcache.New(1000).Expiration(30 * time.Second).Build(),
 		client: &http.Client{
 			Timeout: 2 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
 		},
 		schema: "http://",
 		port:   "80",
