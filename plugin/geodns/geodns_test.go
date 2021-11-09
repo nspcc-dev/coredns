@@ -20,11 +20,18 @@ func TestFiltering(t *testing.T) {
 	ctx := context.Background()
 
 	// to test healthchecker
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
 	go func() {
-		err := http.ListenAndServe("0.0.0.0:8080", nil)
+		mux := http.NewServeMux()
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		srv := http.Server{
+			Addr:    "0.0.0.0:8080",
+			Handler: mux,
+		}
+
+		err := srv.ListenAndServe()
 		require.NoError(t, err)
 	}()
 
@@ -80,7 +87,7 @@ func TestFiltering(t *testing.T) {
 				"test.neofs": tc.records,
 			})
 			geoDNS.filter.health.schema = "http://"
-			geoDNS.filter.health.port = ":8080"
+			geoDNS.filter.health.port = "8080"
 			for _, ip := range []string{Orgrimar, WarsongHold, Stormwind} {
 				_ = geoDNS.filter.health.cache.Set(ip, true)
 			}
