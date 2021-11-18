@@ -2,36 +2,53 @@ package nns
 
 import (
 	"context"
+	"strings"
+	"testing"
+	"time"
+
 	"github.com/coredns/caddy"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
-	"testing"
-	"time"
 )
 
-const testImage = "nspccdev/neofs-aio-testcontainer:0.24.0"
+const testImage = "nspccdev/neofs-aio-testcontainer:0.26.1"
 
-func TestSetup(t *testing.T) {
-	container := createDockerContainer(context.TODO(), t, testImage)
-	defer container.Terminate(context.TODO())
+func TestIntegration(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	container := createDockerContainer(ctx, t, testImage)
+	defer container.Terminate(ctx)
 
+	c := caddy.NewTestController("dns", "nns http://localhost:30333")
+	err := setup(c)
+	require.NoError(t, err)
+	cancel()
+}
+
+func TestParseArgs(t *testing.T) {
 	for _, tc := range []struct {
-		endpoint string
-		valid    bool
+		args  string
+		valid bool
 	}{
-		{endpoint: "", valid: false},
-		{endpoint: "localhost", valid: false},
-		{endpoint: "localhost:30333", valid: false},
-		{endpoint: "http://localhost", valid: false},
-		{endpoint: "http://localhost:30333", valid: true},
+		{args: "", valid: false},
+		{args: "localhost", valid: false},
+		{args: "localhost:30333", valid: false},
+		{args: "http://localhost", valid: false},
+		{args: "http://localhost:30333", valid: true},
+		{args: "http://localhost:30333 domain", valid: true},
+		{args: "http://localhost:30333 domain third", valid: false},
 	} {
-		c := caddy.NewTestController("dns", "nns "+tc.endpoint)
-		err := setup(c)
-		if tc.valid && err != nil {
-			t.Fatalf("Expected no errors, but got: %v", err)
+		c := caddy.NewTestController("dns", "nns "+tc.args)
+		endpoint, domain, err := parseArgs(c)
+		if tc.valid {
+			if err != nil {
+				t.Fatalf("Expected no errors, but got: %v", err)
+			} else {
+				res := strings.TrimSpace(endpoint + " " + domain)
+				require.Equal(t, tc.args, res)
+			}
 		} else if !tc.valid && err == nil {
-			t.Fatalf("Expected errors, but got: %v", err)
+			t.Fatalf("Expected error but got nil, args: '%s'", tc.args)
 		}
 	}
 }
