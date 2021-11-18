@@ -18,11 +18,15 @@ import (
 )
 
 type NNS struct {
-	Next   plugin.Handler
-	Client *client.Client
-	CS     *state.Contract
-	Log    clog.P
+	Next      plugin.Handler
+	Client    *client.Client
+	CS        *state.Contract
+	Log       clog.P
+	nnsDomain string
+	dnsDomain string
 }
+
+const dot = "."
 
 // ServeDNS implements the plugin.Handler interface.
 // This method gets called when example is used in a Server.
@@ -46,10 +50,10 @@ func (n NNS) Name() string { return pluginName }
 
 // Transfer implements the transfer.Transfer interface.
 func (n NNS) Transfer(zone string, serial uint32) (<-chan []dns.RR, error) {
-	trimmedZone := strings.TrimSuffix(zone, ".")
+	trimmedZone := n.prepareName(zone)
 	records, err := getRecords(n.Client, n.CS.Hash, trimmedZone, nns.RecordType(dns.TypeSOA))
 	if err != nil {
-		n.Log.Warning("couldn't transfer zone: ", err)
+		n.Log.Warningf("couldn't transfer zone '%s' as '%s': %s", zone, trimmedZone, err.Error())
 		return nil, transfer.ErrNotAuthoritative
 	}
 	if len(records) == 0 {
@@ -62,7 +66,7 @@ func (n NNS) Transfer(zone string, serial uint32) (<-chan []dns.RR, error) {
 
 		recs, err := n.zoneTransfer(trimmedZone)
 		if err != nil {
-			n.Log.Warning("couldn't transfer zone:", err)
+			n.Log.Warningf("couldn't transfer zone '%s' as '%s' : %s", zone, trimmedZone, err.Error())
 			return
 		}
 
@@ -72,21 +76,45 @@ func (n NNS) Transfer(zone string, serial uint32) (<-chan []dns.RR, error) {
 	return ch, nil
 }
 
+func (n *NNS) setDNSDomain(name string) {
+	n.dnsDomain = strings.Trim(name, dot)
+}
+
+func (n *NNS) setNNSDomain(name string) {
+	n.nnsDomain = strings.Trim(name, dot)
+}
+
+func (n NNS) prepareName(name string) string {
+	name = strings.TrimSuffix(name, dot)
+	if n.nnsDomain != "" {
+		name = strings.TrimSuffix(strings.TrimSuffix(name, n.dnsDomain), dot)
+		if name != "" {
+			name += dot
+		}
+		name += n.nnsDomain
+	}
+	return name
+}
+
 func (n NNS) resolveRecords(state request.Request) ([]dns.RR, error) {
-	name := strings.TrimSuffix(state.QName(), ".")
+	name := n.prepareName(state.QName())
 
 	nnsType, err := getNNSType(state)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot resolve '%s' (type %d) as '%s': %w", state.QName(), state.QType(), name, err)
 	}
 
 	resolved, err := resolve(n.Client, n.CS.Hash, name, nnsType)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot resolve '%s' (type %d) as '%s': %w", state.QName(), state.QType(), name, err)
 	}
 
 	hdr := dns.RR_Header{Name: state.QName(), Rrtype: state.QType(), Class: state.QClass(), Ttl: 0}
-	return formResRecords(hdr, resolved)
+	res, err := formResRecords(hdr, resolved)
+	if err != nil {
+		return nil, fmt.Errorf("cannot resolve '%s' (type %d) as '%s': %w", state.QName(), state.QType(), name, err)
+	}
+	return res, nil
 }
 
 func (n NNS) zoneTransfer(name string) ([]dns.RR, error) {

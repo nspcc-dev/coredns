@@ -39,5 +39,64 @@ func TestGetNetmapHash(t *testing.T) {
 	require.Equal(t, dns.RcodeSuccess, status)
 
 	res := rec.Msg.Answer[0].(*dns.TXT).Txt[0]
-	require.Equal(t, "6b5a4b75ed4540d14420a7c3264bb936cb78a2d4", res)
+	require.Equal(t, "0e99bef139732856362899310a9bac1211f72d06", res)
+}
+
+func TestMapping(t *testing.T) {
+	for _, tc := range []struct {
+		dnsDomain string
+		nnsDomain string
+		request   string
+		expected  string
+	}{
+		{
+			dnsDomain: ".",
+			nnsDomain: "",
+			request:   "test.neofs",
+			expected:  "test.neofs",
+		},
+		{
+			dnsDomain: ".",
+			nnsDomain: "",
+			request:   "test.neofs.",
+			expected:  "test.neofs",
+		},
+		{
+			dnsDomain: ".",
+			nnsDomain: "container.",
+			request:   "test.neofs",
+			expected:  "test.neofs.container",
+		},
+		{
+			dnsDomain: ".",
+			nnsDomain: ".container",
+			request:   "test.neofs.",
+			expected:  "test.neofs.container",
+		},
+		{
+			dnsDomain: "containers.testnet.fs.neo.org.",
+			nnsDomain: "container",
+			request:   "containers.testnet.fs.neo.org",
+			expected:  "container",
+		},
+		{
+			dnsDomain: ".containers.testnet.fs.neo.org",
+			nnsDomain: "container",
+			request:   "containers.testnet.fs.neo.org.",
+			expected:  "container",
+		},
+		{
+			dnsDomain: "containers.testnet.fs.neo.org.",
+			nnsDomain: "container",
+			request:   "nicename.containers.testnet.fs.neo.org",
+			expected:  "nicename.container",
+		},
+	} {
+		nns := &NNS{}
+		nns.setDNSDomain(tc.dnsDomain)
+		nns.setNNSDomain(tc.nnsDomain)
+
+		res := nns.prepareName(tc.request)
+		require.Equal(t, tc.expected, res)
+	}
 }
