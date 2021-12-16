@@ -17,6 +17,7 @@ require (
 	github.com/golang/geo v0.0.0-20210211234256-740aa86cb551
 	github.com/golang/protobuf v1.5.2
 	github.com/grpc-ecosystem/grpc-opentracing v0.0.0-20180507213350-8e809c8a8645
+	github.com/hashicorp/golang-lru v0.5.4
 	github.com/imdario/mergo v0.3.12 // indirect
 	github.com/infobloxopen/go-trees v0.0.0-20200715205103-96a057b8dfb9
 	github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369
@@ -33,6 +34,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.11.1
 	go.etcd.io/etcd/api/v3 v3.5.0
 	go.etcd.io/etcd/client/v3 v3.5.0
+	go.uber.org/atomic v1.9.0
 	golang.org/x/crypto v0.0.0-20210711020723-a769d52b0f97
 	golang.org/x/sys v0.0.0-20210823070655-63515b42dcdf
 	google.golang.org/api v0.56.0
