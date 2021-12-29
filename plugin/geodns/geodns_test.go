@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/http"
 	"strings"
 	"testing"
 
@@ -18,22 +17,6 @@ import (
 
 func TestFiltering(t *testing.T) {
 	ctx := context.Background()
-
-	// to test healthchecker
-	go func() {
-		mux := http.NewServeMux()
-		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		})
-
-		srv := http.Server{
-			Addr:    "0.0.0.0:8080",
-			Handler: mux,
-		}
-
-		err := srv.ListenAndServe()
-		require.NoError(t, err)
-	}()
 
 	// locations
 	Orgrimar := "4444:1::"
@@ -86,11 +69,6 @@ func TestFiltering(t *testing.T) {
 			geoDNS.Next = newTestHandler(map[string][]string{
 				"test.neofs": tc.records,
 			})
-			geoDNS.filter.health.schema = "http://"
-			geoDNS.filter.health.port = "8080"
-			for _, ip := range []string{Orgrimar, WarsongHold, Stormwind} {
-				_ = geoDNS.filter.health.cache.Set(ip, true)
-			}
 
 			req := new(dns.Msg)
 			req.SetQuestion(dns.Fqdn("test.neofs"), dns.TypeAAAA)
@@ -126,7 +104,6 @@ func TestFilteringEDNS0(t *testing.T) {
 	geoDNS.Next = newTestHandler(map[string][]string{
 		"test.neofs": {Orgrimar, WarsongHold, Stormwind},
 	})
-	_ = geoDNS.filter.health.cache.Set(Orgrimar, true)
 
 	req := new(dns.Msg)
 	req.SetQuestion(dns.Fqdn("test.neofs"), dns.TypeAAAA)

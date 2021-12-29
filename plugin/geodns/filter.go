@@ -5,7 +5,6 @@ import (
 	"math"
 	"net"
 	"sort"
-	"strings"
 
 	"github.com/golang/geo/s2"
 	"github.com/miekg/dns"
@@ -16,14 +15,10 @@ const maxDistance float64 = 360
 
 var emptyLocation geoip2.City
 
-type serverInfo struct {
-	index        int
-	distanceInfo *DistanceInfo
-}
-
 type recordInfo struct {
-	endpoint string
-	record   dns.RR
+	endpoint     string
+	record       dns.RR
+	distanceInfo *DistanceInfo
 }
 
 func (r *recordInfo) String() string {
@@ -49,14 +44,6 @@ func NewResponseFilter(w dns.ResponseWriter, filter *filter, client net.IP) *Res
 // WriteMsg records the message and its length written to it and call the
 // underlying ResponseWriter's WriteMsg method.
 func (r *ResponseFilter) WriteMsg(res *dns.Msg) error {
-	qtype := res.Question[0].Qtype
-	qName := res.Question[0].Name
-
-	if !isSupportedType(qtype) {
-		log.Debugf("unsupported type %s, nothing to do", dns.Type(qtype))
-		return r.ResponseWriter.WriteMsg(res)
-	}
-
 	if len(res.Answer) == 0 {
 		log.Debugf("answer is empty, nothing to do")
 		return r.ResponseWriter.WriteMsg(res)
@@ -71,47 +58,36 @@ func (r *ResponseFilter) WriteMsg(res *dns.Msg) error {
 		return r.ResponseWriter.WriteMsg(res)
 	}
 
-	healthy := r.filterHealthy(qName, res.Answer)
-	if len(healthy) == 0 {
-		log.Warningf("no answer returned: couldn't resolve %s: no healthy IPs", qName)
-	}
-	distances := make([]serverInfo, len(healthy))
+	recInfos := make([]recordInfo, 0, len(res.Answer))
 
-	for i, rec := range healthy {
-		serverInf := r.filter.db.IPInfo(net.ParseIP(rec.endpoint))
-		if serverInf.IsEmpty() {
-			log.Debugf(formErrMessage(rec))
-			distances[i] = serverInfo{index: i, distanceInfo: &DistanceInfo{Distance: maxDistance}}
+	for _, rec := range res.Answer {
+		endpoint := getEndpointFromRecord(rec)
+		if endpoint == "" {
+			log.Warningf("couldn't get an endpoint: wrong record type: %s", rec.String())
 			continue
 		}
-
-		dist := distance(clientInf, serverInf)
-		distances[i] = serverInfo{index: i, distanceInfo: dist}
+		var distInfo *DistanceInfo
+		serverInf := r.filter.db.IPInfo(net.ParseIP(endpoint))
+		if serverInf.IsEmpty() {
+			log.Debugf(formErrMessage(rec))
+			distInfo = &DistanceInfo{Distance: maxDistance}
+		} else {
+			distInfo = distance(clientInf, serverInf)
+		}
+		recInfos = append(recInfos, recordInfo{endpoint: endpoint, record: rec, distanceInfo: distInfo})
 	}
 
-	res.Answer = chooseClosest(healthy, distances, r.filter.maxRecords)
+	res.Answer = chooseClosest(recInfos, r.filter.maxRecords)
 	return r.ResponseWriter.WriteMsg(res)
 }
 
-func (r *ResponseFilter) filterHealthy(qName string, records []dns.RR) []*recordInfo {
-	results := make([]*recordInfo, 0, len(records))
-	endpoints := make([]string, len(records))
-
-	for i, ans := range records {
-		split := strings.Split(ans.String(), "\t")
-		endpoints[i] = split[len(split)-1]
+func getEndpointFromRecord(record dns.RR) (endpoint string) {
+	if aRec, ok := record.(*dns.A); ok {
+		endpoint = aRec.A.String()
+	} else if aaaaRec, ok := record.(*dns.AAAA); ok {
+		endpoint = aaaaRec.AAAA.String()
 	}
-
-	for i, healthy := range r.filter.health.check(endpoints) {
-		if healthy {
-			results = append(results, &recordInfo{record: records[i], endpoint: endpoints[i]})
-		} else {
-			log.Warningf("tried to resolve the %s, healthcheck %s failed",
-				qName, net.JoinHostPort(endpoints[i], r.filter.health.port))
-		}
-	}
-
-	return results
+	return
 }
 
 // Write is a wrapper that records the length of the messages that get written to it.
@@ -158,14 +134,14 @@ func distance(from, to *IPInformation) *DistanceInfo {
 	return res
 }
 
-func chooseClosest(records []*recordInfo, distance []serverInfo, max int) []dns.RR {
-	if len(records) < max {
-		max = len(records)
+func chooseClosest(recInfos []recordInfo, max int) []dns.RR {
+	if len(recInfos) < max {
+		max = len(recInfos)
 	}
 
-	sort.Slice(distance, func(i, j int) bool {
-		di1 := distance[i].distanceInfo
-		di2 := distance[j].distanceInfo
+	sort.Slice(recInfos, func(i, j int) bool {
+		di1 := recInfos[i].distanceInfo
+		di2 := recInfos[j].distanceInfo
 
 		if di1.Distance == maxDistance && di2.Distance == maxDistance {
 			return di1.CountryMatched
@@ -176,7 +152,7 @@ func chooseClosest(records []*recordInfo, distance []serverInfo, max int) []dns.
 
 	results := make([]dns.RR, max)
 	for i := 0; i < max; i++ {
-		results[i] = records[distance[i].index].record
+		results[i] = recInfos[i].record
 	}
 
 	return results
