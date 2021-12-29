@@ -24,7 +24,6 @@ type GeoDNS struct {
 type filter struct {
 	db         *db
 	maxRecords int
-	health     *checker
 }
 
 func newGeoDNS(dbPath string, maxRecords int) (*GeoDNS, error) {
@@ -60,13 +59,19 @@ func newGeoDNS(dbPath string, maxRecords int) (*GeoDNS, error) {
 		filter: &filter{
 			db:         db,
 			maxRecords: maxRecords,
-			health:     newHealthChecker(),
 		},
 	}, nil
 }
 
 // ServeDNS implements the plugin.Handler interface.
 func (g GeoDNS) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
+	qtype := r.Question[0].Qtype
+
+	if !isSupportedType(qtype) {
+		log.Debugf("unsupported type %s, nothing to do", dns.Type(qtype))
+		return plugin.NextOrFailure(pluginName, g.Next, ctx, w, r)
+	}
+
 	var realIP net.IP
 
 	if addr, ok := w.RemoteAddr().(*net.UDPAddr); ok {
