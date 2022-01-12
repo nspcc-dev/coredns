@@ -56,6 +56,7 @@ func NewHealthCheckFilter(checker Checker, size int, interval time.Duration, fil
 	if len(filters) == 0 {
 		return nil, fmt.Errorf("filters must not be empty")
 	}
+
 	cache, err := lru.NewWithEvict(size, func(key interface{}, value interface{}) {
 		if e, ok := value.(*entry); ok {
 			close(e.quit)
@@ -85,6 +86,7 @@ func (p *HealthCheckFilter) FilterRecords(records []dns.RR) []dns.RR {
 				continue
 			}
 			p.put(r)
+			log.Debugf("record '%s' will be cached", r.String())
 		}
 		result = append(result, r)
 	}
@@ -93,10 +95,6 @@ func (p *HealthCheckFilter) FilterRecords(records []dns.RR) []dns.RR {
 }
 
 func matchFilters(filters []Filter, record string) bool {
-	if len(filters) == 0 {
-		return true
-	}
-
 	for _, filter := range filters {
 		if filter.Match(record) {
 			return true

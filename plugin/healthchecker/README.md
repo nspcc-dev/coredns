@@ -19,7 +19,7 @@ as healthy. If the filter is not set, the plugin will check and store all record
 ## Syntax
 
 ``` txt
-healthchecker HEALTHCHECK_METHOD CACHE_SIZE HEALTHCHECK_INTERVAL ORIGIN. [NAME_FILTER1 NAME_FILTER2 ...]
+healthchecker HEALTHCHECK_METHOD CACHE_SIZE HEALTHCHECK_INTERVAL REGEXP_FILTER [ADDITIONAL_REGEXP_FILTERS... ]
 ```
 
 - `HEALTHCHECK_METHOD` -- method of checking of nodes: http is implemented.  
@@ -28,27 +28,27 @@ HTTP method can be configured in the following format: `http OR http:PORT OR htt
 
 - `CACHE_SIZE` -- maximum number of records in cache
 - `HEALTHCHECK_INTERVAL` -- time interval of updating status of records in cache in duration format
-- `ORIGIN.` -- DNS origin. Must end with a dot.
-- `[NAME_FILTER1 NAME_FILTER2 ...]` -- optional filters for names of records. It can be an exact name or
-  '@' (means the same name as `ORIGIN`).
+- `REGEXP_FILTER` -- any valid regexp pattern to filter which records will be cached (also can be `@` which means origin).
+- `[ADDITIONAL_REGEXP_FILTERS... ]` -- optional filters (the same name as `REGEXP_FILTER`). 
+  A record will be cached if it matches any filter.
 
 ## Examples
 
 In this configuration, we will filter `A` and `AAAA` records, store maximum 1000 records in cache, and start recheck of 
 each record in cache for every 3 seconds via http client. The plugin will check records with name 
-fs.neo.org ('@' in config) or cdn.fs.neo.org ('cdn' in config).
+fs.neo.org (`@` in config) or cdn.fs.neo.org (`^cdn\.fs\.neo\.org` in config).
 HTTP requests to check and update statuses of IPs will use default 80 port and wait for default 2 seconds.
 ``` corefile
-. {
-    healthchecker http 1000 1s fs.neo.org. @ cdn
+fs.neo.org. {
+    healthchecker http 1000 1s @ ^cdn\.fs\.neo\.org
     file db.example.org fs.neo.org
 }
 ```
 
 The same as above but port and timeout for HTTP client are set.
 ``` corefile
-. {
-    healthchecker http:80:3000 1000 1s fs.neo.org. @ cdn
+fs.neo.org. {
+    healthchecker http:80:3000 1000 1s @ ^cdn\.fs\.neo\.org
     file db.example.org fs.neo.org
 }
 ```
