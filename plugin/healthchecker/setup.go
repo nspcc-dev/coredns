@@ -48,6 +48,7 @@ func filterParamsParse(c *caddy.Controller) (*HealthCheckFilter, error) {
 			return nil, err
 		}
 	}
+
 	//parsing cache size
 	size, err := strconv.Atoi(args[1])
 	if err != nil || size <= 0 {
@@ -67,15 +68,25 @@ func filterParamsParse(c *caddy.Controller) (*HealthCheckFilter, error) {
 			args[3]))
 	}
 
-	// parsing names
-	names := make(map[string]struct{})
+	originPatternSuffix := "\\." + strings.ReplaceAll(origin, ".", "\\.")
+	// parsing filters
+	var filters []Filter
 	for i := 4; i < len(args); i++ {
 		if args[i] == "@" {
-			names[origin] = struct{}{}
+			filters = append(filters, SimpleMatchFilter(origin))
 		} else {
-			names[args[i]+"."+origin] = struct{}{}
+			regexpFilter, err := NewRegexpFilter(args[i] + originPatternSuffix)
+			if err != nil {
+				return nil, plugin.Error(pluginName, fmt.Errorf("invalid regexp filter: %s", args[i]))
+			}
+			filters = append(filters, regexpFilter)
 		}
 	}
 
-	return NewHealthCheckFilter(checker, size, interval, names)
+	healthCheckFilter, err := NewHealthCheckFilter(checker, size, interval, filters)
+	if err != nil {
+		return nil, plugin.Error(pluginName, fmt.Errorf("couldn't create healthcheck filter: %w", err))
+	}
+
+	return healthCheckFilter, nil
 }

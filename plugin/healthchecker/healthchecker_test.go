@@ -19,7 +19,7 @@ func (t *tmpcheck) Check(record dns.RR) bool {
 func TestPanic(t *testing.T) {
 	checker := &tmpcheck{}
 
-	f, err := NewHealthCheckFilter(checker, 2, 200, map[string]struct{}{})
+	f, err := NewHealthCheckFilter(checker, 2, 200, []Filter{SimpleMatchFilter("abc")})
 
 	require.NoError(t, err)
 
