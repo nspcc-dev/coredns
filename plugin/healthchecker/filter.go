@@ -1,9 +1,11 @@
 package healthchecker
 
 import (
+	"fmt"
+	"regexp"
 	"time"
 
-	"github.com/hashicorp/golang-lru"
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/miekg/dns"
 	"go.uber.org/atomic"
 )
@@ -14,6 +16,7 @@ type (
 		checker  Checker
 		interval time.Duration
 		names    map[string]struct{}
+		filters  []Filter
 	}
 
 	entry struct {
@@ -21,9 +24,38 @@ type (
 		healthy   *atomic.Bool
 		quit      chan struct{}
 	}
+
+	Filter interface {
+		Match(string) bool
+	}
+
+	RegexpFilter struct {
+		expr *regexp.Regexp
+	}
+
+	SimpleMatchFilter string
 )
 
-func NewHealthCheckFilter(checker Checker, size int, interval time.Duration, names map[string]struct{}) (*HealthCheckFilter, error) {
+func (f SimpleMatchFilter) Match(rec string) bool {
+	return string(f) == rec
+}
+
+func NewRegexpFilter(pattern string) (*RegexpFilter, error) {
+	expr, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+	return &RegexpFilter{expr: expr}, nil
+}
+
+func (f *RegexpFilter) Match(rec string) bool {
+	return f.expr.MatchString(rec)
+}
+
+func NewHealthCheckFilter(checker Checker, size int, interval time.Duration, filters []Filter) (*HealthCheckFilter, error) {
+	if len(filters) == 0 {
+		return nil, fmt.Errorf("filters must not be empty")
+	}
 	cache, err := lru.NewWithEvict(size, func(key interface{}, value interface{}) {
 		if e, ok := value.(*entry); ok {
 			close(e.quit)
@@ -36,7 +68,7 @@ func NewHealthCheckFilter(checker Checker, size int, interval time.Duration, nam
 		cache:    cache,
 		checker:  checker,
 		interval: interval,
-		names:    names,
+		filters:  filters,
 	}, nil
 }
 
@@ -44,7 +76,7 @@ func (p *HealthCheckFilter) FilterRecords(records []dns.RR) []dns.RR {
 	result := make([]dns.RR, 0, len(records))
 
 	for _, r := range records {
-		if _, ok := p.names[r.Header().Name]; ok || len(p.names) == 0 {
+		if matchFilters(p.filters, r.Header().Name) {
 			e := p.get(r.String())
 			if e != nil {
 				if e.healthy.Load() {
@@ -58,6 +90,20 @@ func (p *HealthCheckFilter) FilterRecords(records []dns.RR) []dns.RR {
 	}
 
 	return result
+}
+
+func matchFilters(filters []Filter, record string) bool {
+	if len(filters) == 0 {
+		return true
+	}
+
+	for _, filter := range filters {
+		if filter.Match(record) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (p *HealthCheckFilter) put(rec dns.RR) {
