@@ -2,6 +2,7 @@ package healthchecker
 
 import (
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -39,7 +40,7 @@ func filterParamsParse(c *caddy.Controller) (*HealthCheckFilter, error) {
 	if len(args) < 4 {
 		return nil, plugin.Error(pluginName,
 			fmt.Errorf("the following format is supported: HEALTHCHECK_METHOD CACHE_SIZE "+
-				"HEALTHCHECK_INTERVAL_IN_MS ORIGIN. [NAME_FILTER1 NAME_FILTER2]"))
+				"HEALTHCHECK_INTERVAL_IN_MS REGEXP_FILTER [ADDITIONAL_REGEXP_FILTERS... ]"))
 	}
 
 	if strings.Contains(args[0], "http") {
@@ -48,6 +49,12 @@ func filterParamsParse(c *caddy.Controller) (*HealthCheckFilter, error) {
 			return nil, err
 		}
 	}
+
+	URL, err := url.Parse(c.Key)
+	if err != nil {
+		return nil, err
+	}
+	origin := URL.Hostname()
 
 	//parsing cache size
 	size, err := strconv.Atoi(args[1])
@@ -61,26 +68,19 @@ func filterParamsParse(c *caddy.Controller) (*HealthCheckFilter, error) {
 		return nil, plugin.Error(pluginName, fmt.Errorf("invalid endpoint check interval: %s", args[2]))
 	}
 
-	// parsing origin
-	origin := args[3]
-	if !strings.HasSuffix(origin, ".") {
-		return nil, plugin.Error(pluginName, fmt.Errorf("invalid or missing origin: %s, the value must end in a dot",
-			args[3]))
-	}
-
-	originPatternSuffix := "\\." + strings.ReplaceAll(origin, ".", "\\.")
 	// parsing filters
-	var filters []Filter
-	for i := 4; i < len(args); i++ {
-		if args[i] == "@" {
-			filters = append(filters, SimpleMatchFilter(origin))
+	var filter Filter
+	filters := make([]Filter, 0, len(args[3:]))
+	for _, rawFilter := range args[3:] {
+		if rawFilter == "@" {
+			filter = SimpleMatchFilter(origin)
 		} else {
-			regexpFilter, err := NewRegexpFilter(args[i] + originPatternSuffix)
+			filter, err = NewRegexpFilter(rawFilter)
 			if err != nil {
-				return nil, plugin.Error(pluginName, fmt.Errorf("invalid regexp filter: %s", args[i]))
+				return nil, plugin.Error(pluginName, fmt.Errorf("invalid regexp filter: %s", rawFilter))
 			}
-			filters = append(filters, regexpFilter)
 		}
+		filters = append(filters, filter)
 	}
 
 	healthCheckFilter, err := NewHealthCheckFilter(checker, size, interval, filters)
