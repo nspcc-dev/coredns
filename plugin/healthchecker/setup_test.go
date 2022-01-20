@@ -42,6 +42,8 @@ func TestSetup(t *testing.T) {
 		{args: "http 100 3000 fs.neo.org", valid: false},
 		// names
 		{args: "http 100 3m fs.neo.org. @ kimchi", valid: true},
+		{args: "http 100 3m fs.neo.org. ^cdn\\.fs\\.\\neo\\.org", valid: true},
+		{args: "http 100 3m \\uFFFD", valid: false},
 	} {
 		c := caddy.NewTestController("dns", "healthchecker "+tc.args)
 		err := setup(c)
