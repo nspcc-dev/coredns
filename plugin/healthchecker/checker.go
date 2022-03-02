@@ -9,12 +9,11 @@ import (
 	"time"
 
 	"github.com/coredns/coredns/plugin"
-	"github.com/miekg/dns"
 )
 
 type (
 	Checker interface {
-		Check(record dns.RR) bool
+		Check(record string) bool
 	}
 
 	HttpChecker struct {
@@ -72,18 +71,7 @@ func NewHttpChecker(httpParams string) (*HttpChecker, error) {
 	}, nil
 }
 
-func (h HttpChecker) Check(record dns.RR) bool {
-	var endpoint string
-	if aRec, ok := record.(*dns.A); ok {
-		endpoint = aRec.A.String()
-	} else if aaaaRec, ok := record.(*dns.AAAA); ok {
-		endpoint = aaaaRec.AAAA.String()
-	} else {
-		// types should have been filtered before, it's something odd if we are here
-		log.Warningf("not supported record type: %s, returned as healthy", record.String())
-		return true
-	}
-
+func (h HttpChecker) Check(endpoint string) bool {
 	response, err := h.client.Get("http://" + net.JoinHostPort(endpoint, h.port))
 	if err != nil {
 		log.Debugf(err.Error())

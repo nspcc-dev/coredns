@@ -1,18 +1,16 @@
 package healthchecker
 
 import (
-	"net"
 	"testing"
 	"time"
 
-	"github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 )
 
 type tmpcheck struct {
 }
 
-func (t *tmpcheck) Check(record dns.RR) bool {
+func (t *tmpcheck) Check(endpoint string) bool {
 	return true
 }
 
@@ -23,10 +21,10 @@ func TestPanic(t *testing.T) {
 
 	require.NoError(t, err)
 
-	a := &dns.A{A: net.ParseIP("127.0.0.1")}
-	a2 := &dns.A{A: net.ParseIP("127.0.0.2")}
-	a3 := &dns.A{A: net.ParseIP("127.0.0.3")}
-	a4 := &dns.A{A: net.ParseIP("127.0.0.4")}
+	a := "127.0.0.1"
+	a2 := "127.0.0.2"
+	a3 := "127.0.0.3"
+	a4 := "127.0.0.4"
 
 	f.put(a)
 	f.put(a2)

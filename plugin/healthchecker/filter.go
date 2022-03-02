@@ -20,9 +20,9 @@ type (
 	}
 
 	entry struct {
-		dnsRecord dns.RR
-		healthy   *atomic.Bool
-		quit      chan struct{}
+		endpoint string
+		healthy  *atomic.Bool
+		quit     chan struct{}
 	}
 
 	Filter interface {
@@ -78,20 +78,39 @@ func (p *HealthCheckFilter) FilterRecords(records []dns.RR) []dns.RR {
 
 	for _, r := range records {
 		if matchFilters(p.filters, r.Header().Name) {
-			e := p.get(r.String())
+			endpoint, err := getEndpoint(r)
+			if err != nil {
+				log.Warningf("record will be ignored: %s", err.Error())
+				continue
+			}
+			e := p.get(endpoint)
 			if e != nil {
 				if e.healthy.Load() {
-					result = append(result, e.dnsRecord)
+					result = append(result, r)
 				}
 				continue
 			}
-			p.put(r)
+			p.put(endpoint)
 			log.Debugf("record '%s' will be cached", r.String())
 		}
 		result = append(result, r)
 	}
 
 	return result
+}
+
+func getEndpoint(record dns.RR) (string, error) {
+	var endpoint string
+	if aRec, ok := record.(*dns.A); ok {
+		endpoint = aRec.A.String()
+	} else if aaaaRec, ok := record.(*dns.AAAA); ok {
+		endpoint = aaaaRec.AAAA.String()
+	} else {
+		// types should have been filtered before, it's something odd if we are here
+		return "", fmt.Errorf("not supported record type: %s", record.String())
+	}
+
+	return endpoint, nil
 }
 
 func matchFilters(filters []Filter, record string) bool {
@@ -104,15 +123,15 @@ func matchFilters(filters []Filter, record string) bool {
 	return false
 }
 
-func (p *HealthCheckFilter) put(rec dns.RR) {
-	health := p.checker.Check(rec)
+func (p *HealthCheckFilter) put(endpoint string) {
+	health := p.checker.Check(endpoint)
 	quit := make(chan struct{})
 	record := &entry{
-		dnsRecord: rec,
-		healthy:   atomic.NewBool(health),
-		quit:      quit,
+		endpoint: endpoint,
+		healthy:  atomic.NewBool(health),
+		quit:     quit,
 	}
-	p.cache.Add(rec.String(), record)
+	p.cache.Add(endpoint, record)
 
 	ticker := time.NewTicker(p.interval)
 	go func() {
@@ -122,7 +141,7 @@ func (p *HealthCheckFilter) put(rec dns.RR) {
 			case <-quit:
 				return
 			case <-ticker.C:
-				e, ok := p.cache.Peek(rec.String())
+				e, ok := p.cache.Peek(endpoint)
 				if !ok {
 					return
 				}
@@ -130,7 +149,8 @@ func (p *HealthCheckFilter) put(rec dns.RR) {
 				if !ok {
 					return
 				}
-				val.healthy.Store(p.checker.Check(rec))
+				val.healthy.Store(p.checker.Check(endpoint))
+				ticker.Reset(p.interval)
 			}
 		}
 	}()
