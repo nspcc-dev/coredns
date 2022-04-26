@@ -10,9 +10,16 @@ import (
 	"github.com/coredns/coredns/plugin"
 	clog "github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/nspcc-dev/neo-go/pkg/rpc/client"
+	"github.com/nspcc-dev/neo-go/pkg/util"
 )
 
 const pluginName = "nns"
+
+type Params struct {
+	Endpoint     string
+	ContractHash util.Uint160
+	Domain       string
+}
 
 func init() {
 	plugin.Register(pluginName, setup)
@@ -24,12 +31,12 @@ func setup(c *caddy.Controller) error {
 		return plugin.Error(pluginName, c.Err(err.Error()))
 	}
 
-	endpoint, nnsDomain, err := parseArgs(c)
+	args, err := parseArgs(c)
 	if err != nil {
 		return err
 	}
 
-	cli, err := client.New(context.TODO(), endpoint, client.Options{})
+	cli, err := client.New(context.TODO(), args.Endpoint, client.Options{})
 	if err != nil {
 		return plugin.Error(pluginName, c.Err(err.Error()))
 	}
@@ -37,20 +44,28 @@ func setup(c *caddy.Controller) error {
 		return plugin.Error(pluginName, c.Err(err.Error()))
 	}
 
-	cs, err := cli.GetContractStateByID(1)
-	if err != nil {
-		return plugin.Error(pluginName, c.Err(err.Error()))
+	if args.ContractHash.Equals(util.Uint160{}) {
+		cs, err := cli.GetContractStateByID(1)
+		if err != nil {
+			return plugin.Error(pluginName, c.Err(err.Error()))
+		}
+		args.ContractHash = cs.Hash
+	} else {
+		_, err := cli.GetContractStateByHash(args.ContractHash)
+		if err != nil {
+			return plugin.Error(pluginName, c.Err(err.Error()))
+		}
 	}
 
 	// Add the Plugin to CoreDNS, so Servers can use it in their plugin chain.
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
 		nns := &NNS{
-			Next:   next,
-			Client: cli,
-			CS:     cs,
-			Log:    clog.NewWithPlugin(pluginName),
+			Next:         next,
+			Client:       cli,
+			ContractHash: args.ContractHash,
+			Log:          clog.NewWithPlugin(pluginName),
 		}
-		nns.setNNSDomain(nnsDomain)
+		nns.setNNSDomain(args.Domain)
 		nns.setDNSDomain(URL.Hostname())
 
 		return *nns
@@ -59,23 +74,36 @@ func setup(c *caddy.Controller) error {
 	return nil
 }
 
-func parseArgs(c *caddy.Controller) (string, string, error) {
+func parseArgs(c *caddy.Controller) (*Params, error) {
 	c.Next()
 	args := c.RemainingArgs()
-	if len(args) < 1 || len(args) > 2 {
-		return "", "", plugin.Error(pluginName, fmt.Errorf("support the following args template: 'NEO_CHAIN_ENDPOINT [NNS_DOMAIN]'"))
+	var (
+		err error
+		res Params
+	)
+
+	if len(args) < 2 || len(args) > 3 {
+		return nil, plugin.Error(pluginName, fmt.Errorf("support the following args template: 'NEO_CHAIN_ENDPOINT CONTRACT_ADDRESS [NNS_DOMAIN]'"))
 	}
-	endpoint := args[0]
-	if URL, err := url.Parse(endpoint); err != nil {
-		return "", "", plugin.Error(pluginName, fmt.Errorf("couldn't parse endpoint: %w", err))
+
+	res.Endpoint = args[0]
+	if URL, err := url.Parse(res.Endpoint); err != nil {
+		return nil, plugin.Error(pluginName, fmt.Errorf("couldn't parse endpoint: %w", err))
 	} else if URL.Scheme == "" || URL.Port() == "" {
-		return "", "", plugin.Error(pluginName, fmt.Errorf("invalid endpoint: %s", endpoint))
+		return nil, plugin.Error(pluginName, fmt.Errorf("invalid endpoint: %s", res.Endpoint))
 	}
 
-	nnsDomain := ""
-	if len(args) == 2 {
-		nnsDomain = args[1]
+	hexStr := args[1]
+	if hexStr != "-" {
+		res.ContractHash, err = util.Uint160DecodeStringLE(hexStr)
+		if err != nil {
+			return nil, plugin.Error(pluginName, fmt.Errorf("invalid nns contract address"))
+		}
 	}
 
-	return endpoint, nnsDomain, nil
+	if len(args) == 3 {
+		res.Domain = args[2]
+	}
+
+	return &res, nil
 }

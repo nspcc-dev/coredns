@@ -13,17 +13,17 @@ import (
 	"github.com/coredns/coredns/request"
 	"github.com/miekg/dns"
 	nns "github.com/nspcc-dev/neo-go/examples/nft-nd-nns"
-	"github.com/nspcc-dev/neo-go/pkg/core/state"
 	"github.com/nspcc-dev/neo-go/pkg/rpc/client"
+	"github.com/nspcc-dev/neo-go/pkg/util"
 )
 
 type NNS struct {
-	Next      plugin.Handler
-	Client    *client.Client
-	CS        *state.Contract
-	Log       clog.P
-	nnsDomain string
-	dnsDomain string
+	Next         plugin.Handler
+	Client       *client.Client
+	ContractHash util.Uint160
+	Log          clog.P
+	nnsDomain    string
+	dnsDomain    string
 }
 
 const dot = "."
@@ -51,7 +51,7 @@ func (n NNS) Name() string { return pluginName }
 // Transfer implements the transfer.Transfer interface.
 func (n NNS) Transfer(zone string, serial uint32) (<-chan []dns.RR, error) {
 	trimmedZone := n.prepareName(zone)
-	records, err := getRecords(n.Client, n.CS.Hash, trimmedZone, nns.RecordType(dns.TypeSOA))
+	records, err := getRecords(n.Client, n.ContractHash, trimmedZone, nns.RecordType(dns.TypeSOA))
 	if err != nil {
 		n.Log.Warningf("couldn't transfer zone '%s' as '%s': %s", zone, trimmedZone, err.Error())
 		return nil, transfer.ErrNotAuthoritative
@@ -104,7 +104,7 @@ func (n NNS) resolveRecords(state request.Request) ([]dns.RR, error) {
 		return nil, fmt.Errorf("cannot resolve '%s' (type %d) as '%s': %w", state.QName(), state.QType(), name, err)
 	}
 
-	resolved, err := resolve(n.Client, n.CS.Hash, name, nnsType)
+	resolved, err := resolve(n.Client, n.ContractHash, name, nnsType)
 	if err != nil {
 		return nil, fmt.Errorf("cannot resolve '%s' (type %d) as '%s': %w", state.QName(), state.QType(), name, err)
 	}
@@ -118,7 +118,7 @@ func (n NNS) resolveRecords(state request.Request) ([]dns.RR, error) {
 }
 
 func (n NNS) zoneTransfer(name string) ([]dns.RR, error) {
-	records, err := getAllRecords(n.Client, n.CS.Hash, name)
+	records, err := getAllRecords(n.Client, n.ContractHash, name)
 	if err != nil {
 		return nil, err
 	}
