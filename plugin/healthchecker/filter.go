@@ -25,6 +25,10 @@ type (
 		quit     chan struct{}
 	}
 
+	Checker interface {
+		Check(record string) bool
+	}
+
 	Filter interface {
 		Match(string) bool
 	}

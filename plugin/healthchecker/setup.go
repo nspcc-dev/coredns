@@ -4,12 +4,17 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/coredns/caddy"
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
+	"github.com/coredns/coredns/plugin/healthchecker/checkers"
+)
+
+const (
+	httpChecker = "http"
+	icmpChecker = "icmp"
 )
 
 func init() {
@@ -43,11 +48,23 @@ func filterParamsParse(c *caddy.Controller) (*HealthCheckFilter, error) {
 				"HEALTHCHECK_INTERVAL_IN_MS REGEXP_FILTER [ADDITIONAL_REGEXP_FILTERS... ]"))
 	}
 
-	if strings.Contains(args[0], "http") {
-		checker, err = NewHttpChecker(args[0])
-		if err != nil {
-			return nil, err
+	checkerType := args[0]
+	switch checkerType {
+	case httpChecker:
+		var prm *checkers.HTTPCheckerParams
+		if prm, err = checkers.ParseHTTPParams(c); err == nil {
+			checker, err = checkers.NewHttpChecker(log, prm)
 		}
+	case icmpChecker:
+		var prm *checkers.ICMPCheckerParams
+		if prm, err = checkers.ParseICMPParams(c); err == nil {
+			checker, err = checkers.NewICMPChecker(log, prm)
+		}
+	default:
+		return nil, plugin.Error(pluginName, fmt.Errorf("unsupported checker type: '%s'", checkerType))
+	}
+	if err != nil {
+		return nil, plugin.Error(pluginName, err)
 	}
 
 	URL, err := url.Parse(c.Key)

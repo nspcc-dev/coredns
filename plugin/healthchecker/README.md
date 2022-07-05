@@ -18,19 +18,47 @@ as healthy. If the filter is not set, the plugin will check and store all record
 
 ## Syntax
 
+### Common
+- `CACHE_SIZE` -- maximum number of records in cache
+- `HEALTHCHECK_INTERVAL` -- time interval of updating status of records in cache in duration format
+- `REGEXP_FILTER` -- any valid regexp pattern to filter which records will be cached (also can be `@` which means origin).
+- `[ADDITIONAL_REGEXP_FILTERS... ]` -- optional filters (the same name as `REGEXP_FILTER`).
+  A record will be cached if it matches any filter.
+
 ``` txt
 healthchecker HEALTHCHECK_METHOD CACHE_SIZE HEALTHCHECK_INTERVAL REGEXP_FILTER [ADDITIONAL_REGEXP_FILTERS... ]
 ```
 
-- `HEALTHCHECK_METHOD` -- method of checking of nodes: http is implemented.  
-  
-HTTP method can be configured in the following format: `http OR http:PORT OR http:PORT:TIMEOUT_IN_MS`
+- `HEALTHCHECK_METHOD` -- method of checking of nodes: `http` and `icmp` is implemented.  
 
-- `CACHE_SIZE` -- maximum number of records in cache
-- `HEALTHCHECK_INTERVAL` -- time interval of updating status of records in cache in duration format
-- `REGEXP_FILTER` -- any valid regexp pattern to filter which records will be cached (also can be `@` which means origin).
-- `[ADDITIONAL_REGEXP_FILTERS... ]` -- optional filters (the same name as `REGEXP_FILTER`). 
-  A record will be cached if it matches any filter.
+### HTTP
+
+HTTP method can be configured in the following block format (all block params can be safely omitted): 
+```
+http CACHE_SIZE HEALTHCHECK_INTERVAL REGEXP_FILTER {
+  port PORT 
+  timeout TIMEOUT_IN_MS
+}
+```
+
+- `PORT` -- port of remote endpoint to make http request (default: 80)
+- `TIMEOUT_IN_MS` -- request timeout to remote endpoint (default: 2s)
+
+
+### ICMP
+
+ICMP method can be configured in the following block format (all block params can be safely omitted): 
+```
+icmp CACHE_SIZE HEALTHCHECK_INTERVAL REGEXP_FILTER {
+  privileged 
+  timeout TIMEOUT_IN_MS
+}
+```
+
+- `privileged` -- if provided, then `ip4:icmp` or `ip6:ipv6-icmp` network is used (otherwise `udp4` or `udp6` network is used)
+- `TIMEOUT_IN_MS` -- timeout of waiting remote endpoint echo reply (default: 2s)
+
+
 
 ## Examples
 
@@ -48,7 +76,29 @@ fs.neo.org. {
 The same as above but port and timeout for HTTP client are set.
 ``` corefile
 fs.neo.org. {
-    healthchecker http:80:3000 1000 1s @ ^cdn\.fs\.neo\.org
+    healthchecker http 1000 1s @ ^cdn\.fs\.neo\.org {
+      port 80
+      timeout 3s
+    }
+    file db.example.org fs.neo.org
+}
+```
+
+Default ICMP checker:
+```
+fs.neo.org. {
+    healthchecker icmp 1000 1s @ ^cdn\.fs\.neo\.org 
+    file db.example.org fs.neo.org
+}
+```
+
+Privileged ICMP checker and custom timeout:
+```
+fs.neo.org. {
+    healthchecker icmp 1000 1s @ ^cdn\.fs\.neo\.org {
+      privileged
+      timeout 3s
+    }
     file db.example.org fs.neo.org
 }
 ```
