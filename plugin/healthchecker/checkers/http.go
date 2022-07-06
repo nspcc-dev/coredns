@@ -37,7 +37,7 @@ func ParseHTTPParams(c *caddy.Controller) (*HTTPCheckerParams, error) {
 		key := c.Val()
 		args := c.RemainingArgs()
 		if len(args) != 1 {
-			return nil, fmt.Errorf("expected one value param, but got '%v'", args)
+			return nil, fmt.Errorf("'%s' param is expected to have one value, but got '%v'", key, args)
 		}
 		value := args[0]
 

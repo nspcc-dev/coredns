@@ -42,13 +42,13 @@ func ParseICMPParams(c *caddy.Controller) (*ICMPCheckerParams, error) {
 		case "privileged":
 			args := c.RemainingArgs()
 			if len(args) != 0 {
-				return nil, fmt.Errorf("expected zero value param, but got '%v'", args)
+				return nil, fmt.Errorf("'privileged' param is used as a flag, so it isn't expected any value, but got '%v'", args)
 			}
 			prm.IsPrivileged = true
 		case "timeout":
 			args := c.RemainingArgs()
 			if len(args) != 1 {
-				return nil, fmt.Errorf("expected one value param, but got '%v'", args)
+				return nil, fmt.Errorf("'timeout' param is expected to have one value, but got '%v'", args)
 			}
 			value := args[0]
 			timeout, err := time.ParseDuration(value)
@@ -71,7 +71,7 @@ func NewICMPChecker(logger log.P, prm *ICMPCheckerParams) (*ICMPChecker, error) 
 	}
 
 	if prm.IsPrivileged {
-		logger.Warningf("you run icmp checker in privileged mode, make sure Coredns has appropriate permission")
+		logger.Warningf("you run icmp checker in privileged mode, make sure Coredns is running behalf of root")
 	}
 
 	return &ICMPChecker{
@@ -203,6 +203,9 @@ func (c ICMPChecker) getConnParams(isV4 bool) (icmpParams, error) {
 	return prm, nil
 }
 
+// isIPv4 check is string ip representation is ip v4 format
+// we don't use 'net.IP.To4() != nil' because of its inaccuracy
+// https://github.com/asaskevich/govalidator/pull/100
 func isIPv4(str string) bool {
 	for i := 0; i < len(str); i++ {
 		switch str[i] {
