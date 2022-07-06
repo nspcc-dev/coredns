@@ -55,7 +55,8 @@ icmp CACHE_SIZE HEALTHCHECK_INTERVAL REGEXP_FILTER {
 }
 ```
 
-- `privileged` -- if provided, then `ip4:icmp` or `ip6:ipv6-icmp` network is used (otherwise `udp4` or `udp6` network is used)
+- `privileged` -- if provided, then `ip4:icmp` or `ip6:ipv6-icmp` network is used (otherwise `udp4` or `udp6` network is used). 
+Make sure you run Coredns as root.
 - `TIMEOUT_IN_MS` -- timeout of waiting remote endpoint echo reply (default: 2s)
 
 
