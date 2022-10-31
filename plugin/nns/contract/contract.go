@@ -1,8 +1,10 @@
-package nns
+package contract
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	nns "github.com/nspcc-dev/neo-go/examples/nft-nd-nns"
 	"github.com/nspcc-dev/neo-go/pkg/rpc/client"
@@ -12,14 +14,60 @@ import (
 	"github.com/nspcc-dev/neo-go/pkg/vm/stackitem"
 )
 
-type nnsRecord struct {
+type Contract struct {
+	client       *client.Client
+	contractHash util.Uint160
+	nnsDomain    string
+}
+
+type Params struct {
+	Endpoint     string
+	ContractHash util.Uint160
+	Domain       string
+}
+
+type Record struct {
 	Name string
 	Type nns.RecordType
 	Data string
 }
 
-func resolve(rpc *client.Client, hash util.Uint160, name string, nnsType nns.RecordType) ([]string, error) {
-	res, err := rpc.InvokeFunction(hash, "resolve", []smartcontract.Parameter{
+const dot = "."
+
+func NewContract(ctx context.Context, prm *Params) (*Contract, error) {
+	cli, err := client.New(ctx, prm.Endpoint, client.Options{})
+	if err != nil {
+		return nil, err
+	}
+	if err = cli.Init(); err != nil {
+		return nil, err
+	}
+
+	if prm.ContractHash.Equals(util.Uint160{}) {
+		cs, err := cli.GetContractStateByID(1)
+		if err != nil {
+			return nil, fmt.Errorf("get contract by id 1: %w", err)
+		}
+		prm.ContractHash = cs.Hash
+	} else {
+		if _, err = cli.GetContractStateByHash(prm.ContractHash); err != nil {
+			return nil, fmt.Errorf("get contract '%s': %w", prm.ContractHash.StringLE(), err)
+		}
+	}
+
+	return &Contract{
+		client:       cli,
+		contractHash: prm.ContractHash,
+		nnsDomain:    strings.Trim(prm.Domain, dot),
+	}, nil
+}
+
+func (c Contract) Hash() util.Uint160 {
+	return c.contractHash
+}
+
+func (c *Contract) Resolve(name string, nnsType nns.RecordType) ([]string, error) {
+	res, err := c.client.InvokeFunction(c.contractHash, "resolve", []smartcontract.Parameter{
 		{
 			Type:  smartcontract.StringType,
 			Value: name,
@@ -40,8 +88,8 @@ func resolve(rpc *client.Client, hash util.Uint160, name string, nnsType nns.Rec
 	return getArrString(res.Stack)
 }
 
-func getAllRecords(rpc *client.Client, hash util.Uint160, name string) ([]nnsRecord, error) {
-	res, err := rpc.InvokeFunction(hash, "getAllRecords", []smartcontract.Parameter{
+func (c *Contract) GetAllRecords(name string) ([]Record, error) {
+	res, err := c.client.InvokeFunction(c.contractHash, "getAllRecords", []smartcontract.Parameter{
 		{
 			Type:  smartcontract.StringType,
 			Value: name,
@@ -58,8 +106,8 @@ func getAllRecords(rpc *client.Client, hash util.Uint160, name string) ([]nnsRec
 	return getRecordsIterator(res.Stack)
 }
 
-func getRecords(rpc *client.Client, hash util.Uint160, name string, nnsType nns.RecordType) ([]string, error) {
-	res, err := rpc.InvokeFunction(hash, "getRecords", []smartcontract.Parameter{
+func (c *Contract) GetRecords(name string, nnsType nns.RecordType) ([]string, error) {
+	res, err := c.client.InvokeFunction(c.contractHash, "getRecords", []smartcontract.Parameter{
 		{
 			Type:  smartcontract.StringType,
 			Value: name,
@@ -78,6 +126,18 @@ func getRecords(rpc *client.Client, hash util.Uint160, name string, nnsType nns.
 	}
 
 	return getArrString(res.Stack)
+}
+
+func (c Contract) PrepareName(name, dnsDomain string) string {
+	name = strings.TrimSuffix(name, dot)
+	if c.nnsDomain != "" {
+		name = strings.TrimSuffix(strings.TrimSuffix(name, dnsDomain), dot)
+		if name != "" {
+			name += dot
+		}
+		name += c.nnsDomain
+	}
+	return name
 }
 
 func getInvocationError(result *result.Invoke) error {
@@ -117,7 +177,7 @@ func getArrString(st []stackitem.Item) ([]string, error) {
 	return res, nil
 }
 
-func getRecordsIterator(st []stackitem.Item) ([]nnsRecord, error) {
+func getRecordsIterator(st []stackitem.Item) ([]Record, error) {
 	index := len(st) - 1 // top stack element is last in the array
 	tmp, err := st[index].Convert(stackitem.InteropT)
 	if err != nil {
@@ -128,7 +188,7 @@ func getRecordsIterator(st []stackitem.Item) ([]nnsRecord, error) {
 		return nil, errors.New("bad conversion")
 	}
 
-	res := make([]nnsRecord, len(iterator.Values))
+	res := make([]Record, len(iterator.Values))
 	for i, item := range iterator.Values {
 		structArr, ok := item.Value().([]stackitem.Item)
 		if !ok {
@@ -156,7 +216,7 @@ func getRecordsIterator(st []stackitem.Item) ([]nnsRecord, error) {
 			return nil, err
 		}
 
-		res[i] = nnsRecord{
+		res[i] = Record{
 			Name: string(nameBytes),
 			Type: nns.RecordType(typeBytes[0]),
 			Data: string(dataBytes),
