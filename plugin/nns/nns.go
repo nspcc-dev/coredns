@@ -14,7 +14,7 @@ import (
 	"github.com/coredns/coredns/plugin/transfer"
 	"github.com/coredns/coredns/request"
 	"github.com/miekg/dns"
-	nns "github.com/nspcc-dev/neo-go/examples/nft-nd-nns"
+	"github.com/nspcc-dev/neofs-contract/nns"
 )
 
 type NNS struct {
@@ -125,7 +125,7 @@ func (n NNS) resolveContractRecords(nnsContract *contract.Contract, state reques
 }
 
 func (n NNS) zoneTransfers(zone string) ([]dns.RR, error) {
-	var result map[string]*Records
+	result := make(map[string]*Records)
 	for i, nnsContract := range n.Contracts {
 		transferRecords, err := n.allTransferRecords(nnsContract, zone, i == 0)
 		if err != nil {
@@ -151,7 +151,8 @@ func (n NNS) allTransferRecords(nnsContract *contract.Contract, zone string, nee
 	result := make(map[string]*Records)
 	for _, record := range records {
 		updatedName := appendRoot(record.Name)
-		recs := result[recKey(updatedName, record.Type)]
+		key := recKey(updatedName, record.Type)
+		recs := result[key]
 		if recs == nil {
 			recs = &Records{
 				Name: updatedName,
@@ -160,6 +161,7 @@ func (n NNS) allTransferRecords(nnsContract *contract.Contract, zone string, nee
 			}
 		}
 		recs.Data = append(recs.Data, record.Data)
+		result[key] = recs
 	}
 
 	if needSOA {

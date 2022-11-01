@@ -6,16 +6,17 @@ import (
 	"fmt"
 	"strings"
 
-	nns "github.com/nspcc-dev/neo-go/examples/nft-nd-nns"
-	"github.com/nspcc-dev/neo-go/pkg/rpc/client"
-	"github.com/nspcc-dev/neo-go/pkg/rpc/response/result"
-	"github.com/nspcc-dev/neo-go/pkg/smartcontract"
+	"github.com/nspcc-dev/neo-go/pkg/rpcclient"
+	"github.com/nspcc-dev/neo-go/pkg/rpcclient/invoker"
+	"github.com/nspcc-dev/neo-go/pkg/rpcclient/unwrap"
 	"github.com/nspcc-dev/neo-go/pkg/util"
 	"github.com/nspcc-dev/neo-go/pkg/vm/stackitem"
+	"github.com/nspcc-dev/neofs-contract/nns"
 )
 
 type Contract struct {
-	client       *client.Client
+	client       *rpcclient.Client
+	invoker      *invoker.Invoker
 	contractHash util.Uint160
 	nnsDomain    string
 }
@@ -35,7 +36,7 @@ type Record struct {
 const dot = "."
 
 func NewContract(ctx context.Context, prm *Params) (*Contract, error) {
-	cli, err := client.New(ctx, prm.Endpoint, client.Options{})
+	cli, err := rpcclient.New(ctx, prm.Endpoint, rpcclient.Options{})
 	if err != nil {
 		return nil, err
 	}
@@ -57,6 +58,7 @@ func NewContract(ctx context.Context, prm *Params) (*Contract, error) {
 
 	return &Contract{
 		client:       cli,
+		invoker:      invoker.New(cli, nil),
 		contractHash: prm.ContractHash,
 		nnsDomain:    strings.Trim(prm.Domain, dot),
 	}, nil
@@ -67,65 +69,73 @@ func (c Contract) Hash() util.Uint160 {
 }
 
 func (c *Contract) Resolve(name string, nnsType nns.RecordType) ([]string, error) {
-	res, err := c.client.InvokeFunction(c.contractHash, "resolve", []smartcontract.Parameter{
-		{
-			Type:  smartcontract.StringType,
-			Value: name,
-		},
-		{
-			Type:  smartcontract.IntegerType,
-			Value: int64(nnsType),
-		},
-	}, nil)
+	item, err := unwrap.Item(c.invoker.Call(c.contractHash, "resolve", name, int64(nnsType)))
 	if err != nil {
 		return nil, err
 	}
 
-	if err = getInvocationError(res); err != nil {
-		return nil, err
+	var res []string
+
+	if _, ok := item.(stackitem.Null); ok {
+		return res, nil
 	}
 
-	return getArrString(res.Stack)
+	arr, ok := item.Value().([]stackitem.Item)
+	if !ok {
+		return nil, errors.New("invalid cast to stack item slice")
+	}
+	for i := range arr {
+		bs, err := arr[i].TryBytes()
+		if err != nil {
+			return nil, fmt.Errorf("convert array item to byte slice: %w", err)
+		}
+
+		res = append(res, string(bs))
+	}
+
+	return res, nil
 }
 
 func (c *Contract) GetAllRecords(name string) ([]Record, error) {
-	res, err := c.client.InvokeFunction(c.contractHash, "getAllRecords", []smartcontract.Parameter{
-		{
-			Type:  smartcontract.StringType,
-			Value: name,
-		},
-	}, nil)
+	sessionID, iterator, err := unwrap.SessionIterator(c.invoker.Call(c.contractHash, "getAllRecords", name))
 	if err != nil {
 		return nil, err
 	}
 
-	if err = getInvocationError(res); err != nil {
-		return nil, err
+	var records []Record
+	var shouldStop bool
+	batchSize := 50
+
+	for !shouldStop {
+		recordsBatchItems, err := c.invoker.TraverseIterator(sessionID, &iterator, batchSize)
+		if err != nil {
+			return nil, err
+		}
+
+		recordsBatch, err := getRecordsByItems(recordsBatchItems)
+		if err != nil {
+			return nil, err
+		}
+
+		records = append(records, recordsBatch...)
+		shouldStop = len(recordsBatch) < batchSize
 	}
 
-	return getRecordsIterator(res.Stack)
+	return records, nil
 }
 
 func (c *Contract) GetRecords(name string, nnsType nns.RecordType) ([]string, error) {
-	res, err := c.client.InvokeFunction(c.contractHash, "getRecords", []smartcontract.Parameter{
-		{
-			Type:  smartcontract.StringType,
-			Value: name,
-		},
-		{
-			Type:  smartcontract.IntegerType,
-			Value: int64(nnsType),
-		},
-	}, nil)
+	res, err := unwrap.ArrayOfBytes(c.invoker.Call(c.contractHash, "getRecords", name, int64(nnsType)))
 	if err != nil {
 		return nil, err
 	}
 
-	if err = getInvocationError(res); err != nil {
-		return nil, err
+	records := make([]string, len(res))
+	for i, rec := range res {
+		records[i] = string(rec)
 	}
 
-	return getArrString(res.Stack)
+	return records, nil
 }
 
 func (c Contract) PrepareName(name, dnsDomain string) string {
@@ -140,56 +150,9 @@ func (c Contract) PrepareName(name, dnsDomain string) string {
 	return name
 }
 
-func getInvocationError(result *result.Invoke) error {
-	if result.State != "HALT" {
-		return fmt.Errorf("invocation failed: %s", result.FaultException)
-	}
-	if len(result.Stack) == 0 {
-		return errors.New("result stack is empty")
-	}
-	return nil
-}
-
-func getArrString(st []stackitem.Item) ([]string, error) {
-	index := len(st) - 1 // top stack element is last in the array
-	arr, err := st[index].Convert(stackitem.ArrayT)
-	if err != nil {
-		return nil, err
-	}
-	if _, ok := arr.(stackitem.Null); ok {
-		return nil, nil
-	}
-
-	iterator, ok := arr.Value().([]stackitem.Item)
-	if !ok {
-		return nil, errors.New("bad conversion")
-	}
-
-	res := make([]string, len(iterator))
-	for i, item := range iterator {
-		bs, err := item.TryBytes()
-		if err != nil {
-			return nil, err
-		}
-		res[i] = string(bs)
-	}
-
-	return res, nil
-}
-
-func getRecordsIterator(st []stackitem.Item) ([]Record, error) {
-	index := len(st) - 1 // top stack element is last in the array
-	tmp, err := st[index].Convert(stackitem.InteropT)
-	if err != nil {
-		return nil, err
-	}
-	iterator, ok := tmp.Value().(result.Iterator)
-	if !ok {
-		return nil, errors.New("bad conversion")
-	}
-
-	res := make([]Record, len(iterator.Values))
-	for i, item := range iterator.Values {
+func getRecordsByItems(items []stackitem.Item) ([]Record, error) {
+	res := make([]Record, len(items))
+	for i, item := range items {
 		structArr, ok := item.Value().([]stackitem.Item)
 		if !ok {
 			return nil, errors.New("bad conversion")
