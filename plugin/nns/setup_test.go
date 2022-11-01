@@ -2,7 +2,6 @@ package nns
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -12,14 +11,14 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-const testImage = "nspccdev/neofs-aio-testcontainer:0.26.1"
+const testImage = "nspccdev/neofs-aio-testcontainer:0.32.0"
 
 func TestIntegration(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	container := createDockerContainer(ctx, t, testImage)
 	defer container.Terminate(ctx)
 
-	c := caddy.NewTestController("dns", "nns http://localhost:30333")
+	c := caddy.NewTestController("dns", "nns http://localhost:30333 -")
 	err := setup(c)
 	require.NoError(t, err)
 	cancel()
@@ -34,21 +33,19 @@ func TestParseArgs(t *testing.T) {
 		{args: "localhost", valid: false},
 		{args: "localhost:30333", valid: false},
 		{args: "http://localhost", valid: false},
-		{args: "http://localhost:30333", valid: true},
-		{args: "http://localhost:30333 domain", valid: true},
-		{args: "http://localhost:30333 domain third", valid: false},
+		{args: "http://localhost:30333 -", valid: true},
+		{args: "http://localhost:30333 8b48999931c0607a78e8cb7ed773c572666f2637", valid: true},
+		{args: "http://localhost:30333 - domain", valid: true},
+		{args: "http://localhost:30333 8b48999931c0607a78e8cb7ed773c572666f2637 domain", valid: true},
+		{args: "http://localhost:30333 - domain third", valid: false},
+		{args: "http://localhost:30333 8b48999931c0607a78e8cb7ed773c572666f2637 domain third", valid: false},
 	} {
 		c := caddy.NewTestController("dns", "nns "+tc.args)
-		endpoint, domain, err := parseArgs(c)
+		_, err := parseContractParams(c)
 		if tc.valid {
-			if err != nil {
-				t.Fatalf("Expected no errors, but got: %v", err)
-			} else {
-				res := strings.TrimSpace(endpoint + " " + domain)
-				require.Equal(t, tc.args, res)
-			}
-		} else if !tc.valid && err == nil {
-			t.Fatalf("Expected error but got nil, args: '%s'", tc.args)
+			require.NoError(t, err)
+		} else {
+			require.Error(t, err)
 		}
 	}
 }
