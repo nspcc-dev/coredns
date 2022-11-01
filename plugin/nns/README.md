@@ -22,6 +22,12 @@ in side-chain, you can place `-` and the plugin will use contract with ID 1 as N
 nns NEO_N3_CHAIN_ENDPOINT - [NNS_DOMAIN]
 ```
 
+You can specify more than one contract. They will be handled as follows:
+
+* Constructing the resulting record set by taking the content from each contract and overriding (conflicting records) 
+in the order of appearance in config file.
+* Using `AXFR` request the `SOA` record taking from the original (first in the order of appearance) zone.
+
 ## Examples
 
 In this configuration, first we try to find the result in the provided neo node and forward 
